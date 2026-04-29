@@ -96,7 +96,9 @@ class PostgresSaver(BasePostgresSaver):
                 self.MIGRATIONS[version + 1 :],
                 strict=False,
             ):
-                cur.execute(migration)
+                cur.execute(
+                    _internal.migration_sql_for_connection(self.conn, migration)
+                )
                 cur.execute("INSERT INTO checkpoint_migrations (v) VALUES (%s)", (v,))
         if self.pipe:
             self.pipe.sync()

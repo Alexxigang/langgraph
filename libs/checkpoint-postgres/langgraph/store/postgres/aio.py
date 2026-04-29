@@ -21,7 +21,7 @@ from psycopg import AsyncConnection, AsyncCursor, AsyncPipeline, Capabilities
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import AsyncConnectionPool
 
-from langgraph.checkpoint.postgres import _ainternal
+from langgraph.checkpoint.postgres import _ainternal, _internal
 from langgraph.store.postgres.base import (
     PLACEHOLDER,
     BasePostgresStore,
@@ -252,7 +252,9 @@ class AsyncPostgresStore(AsyncBatchedBaseStore, BasePostgresStore[_ainternal.Con
         async with self._cursor() as cur:
             version = await _get_version(cur, table="store_migrations")
             for v, sql in enumerate(self.MIGRATIONS[version + 1 :], start=version + 1):
-                await cur.execute(sql)
+                await cur.execute(
+                    _internal.migration_sql_for_connection(self.conn, sql)
+                )
                 await cur.execute("INSERT INTO store_migrations (v) VALUES (%s)", (v,))
 
             if self.index_config:
@@ -288,7 +290,9 @@ class AsyncPostgresStore(AsyncBatchedBaseStore, BasePostgresStore[_ainternal.Con
                                 )
                             params["index_type"] = it
                         sql = sql % params
-                    await cur.execute(sql)
+                    await cur.execute(
+                        _internal.migration_sql_for_connection(self.conn, sql)
+                    )
                     await cur.execute(
                         "INSERT INTO vector_migrations (v) VALUES (%s)", (v,)
                     )

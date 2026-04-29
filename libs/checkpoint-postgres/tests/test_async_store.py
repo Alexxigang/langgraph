@@ -121,6 +121,44 @@ async def test_no_running_loop(store: AsyncPostgresStore) -> None:
         result = await asyncio.wrap_future(
             executor.submit(store.list_namespaces, prefix=("foo",))
         )
+        assert ("foo", "bar") in result
+
+
+async def test_setup_inside_transaction_for_async_postgres_store() -> None:
+    database = f"test_{uuid.uuid4().hex[:16]}"
+    uri_parts = DEFAULT_URI.split("/")
+    uri_base = "/".join(uri_parts[:-1])
+    query_params = ""
+    if "?" in uri_parts[-1]:
+        _, query_params = uri_parts[-1].split("?", 1)
+        query_params = "?" + query_params
+
+    conn_string = f"{uri_base}/{database}{query_params}"
+    async with await AsyncConnection.connect(DEFAULT_URI, autocommit=True) as conn:
+        await conn.execute(f"CREATE DATABASE {database}")
+    try:
+        async with await AsyncConnection.connect(conn_string, autocommit=True) as conn:
+            store = AsyncPostgresStore(conn)
+            store.MIGRATIONS = [
+                (
+                    mig.replace("ttl_minutes INT;", "ttl_minutes FLOAT;")
+                    if isinstance(mig, str)
+                    else mig
+                )
+                for mig in store.MIGRATIONS
+            ]
+            async with conn.transaction():
+                await store.setup()
+
+            row = await (
+                await conn.execute(
+                    "SELECT to_regclass('store_prefix_idx') AS prefix_idx"
+                )
+            ).fetchone()
+            assert row == {"prefix_idx": "store_prefix_idx"}
+    finally:
+        async with await AsyncConnection.connect(DEFAULT_URI, autocommit=True) as conn:
+            await conn.execute(f"DROP DATABASE {database}")
 
 
 async def test_large_batches(request: Any, store: AsyncPostgresStore) -> None:

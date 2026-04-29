@@ -155,6 +155,84 @@ async def _saver(name: str):
             yield saver
 
 
+async def test_setup_inside_transaction_for_async_postgres_saver() -> None:
+    database = f"test_{uuid4().hex[:16]}"
+    async with await AsyncConnection.connect(
+        DEFAULT_POSTGRES_URI, autocommit=True
+    ) as conn:
+        await conn.execute(f"CREATE DATABASE {database}")
+    try:
+        async with await AsyncConnection.connect(
+            DEFAULT_POSTGRES_URI + database,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        ) as conn:
+            saver = AsyncPostgresSaver(conn)
+            async with conn.transaction():
+                await saver.setup()
+
+            row = await (
+                await conn.execute(
+                    """
+                    SELECT
+                        to_regclass('checkpoints_thread_id_idx') AS checkpoints_idx,
+                        to_regclass('checkpoint_blobs_thread_id_idx') AS blobs_idx,
+                        to_regclass('checkpoint_writes_thread_id_idx') AS writes_idx
+                    """
+                )
+            ).fetchone()
+            assert row == {
+                "checkpoints_idx": "checkpoints_thread_id_idx",
+                "blobs_idx": "checkpoint_blobs_thread_id_idx",
+                "writes_idx": "checkpoint_writes_thread_id_idx",
+            }
+    finally:
+        async with await AsyncConnection.connect(
+            DEFAULT_POSTGRES_URI, autocommit=True
+        ) as conn:
+            await conn.execute(f"DROP DATABASE {database}")
+
+
+async def test_setup_inside_transaction_for_async_shallow_postgres_saver() -> None:
+    database = f"test_{uuid4().hex[:16]}"
+    async with await AsyncConnection.connect(
+        DEFAULT_POSTGRES_URI, autocommit=True
+    ) as conn:
+        await conn.execute(f"CREATE DATABASE {database}")
+    try:
+        async with await AsyncConnection.connect(
+            DEFAULT_POSTGRES_URI + database,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        ) as conn:
+            saver = AsyncShallowPostgresSaver(conn)
+            async with conn.transaction():
+                await saver.setup()
+
+            row = await (
+                await conn.execute(
+                    """
+                    SELECT
+                        to_regclass('checkpoints_thread_id_idx') AS checkpoints_idx,
+                        to_regclass('checkpoint_blobs_thread_id_idx') AS blobs_idx,
+                        to_regclass('checkpoint_writes_thread_id_idx') AS writes_idx
+                    """
+                )
+            ).fetchone()
+            assert row == {
+                "checkpoints_idx": "checkpoints_thread_id_idx",
+                "blobs_idx": "checkpoint_blobs_thread_id_idx",
+                "writes_idx": "checkpoint_writes_thread_id_idx",
+            }
+    finally:
+        async with await AsyncConnection.connect(
+            DEFAULT_POSTGRES_URI, autocommit=True
+        ) as conn:
+            await conn.execute(f"DROP DATABASE {database}")
+
+
 @pytest.fixture
 def test_data():
     """Fixture providing test data for checkpoint tests."""

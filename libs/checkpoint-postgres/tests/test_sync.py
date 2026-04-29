@@ -281,6 +281,72 @@ def test_nonnull_migrations() -> None:
         assert statement.strip()
 
 
+def test_setup_inside_transaction_for_postgres_saver() -> None:
+    database = f"test_{uuid4().hex[:16]}"
+    with Connection.connect(DEFAULT_POSTGRES_URI, autocommit=True) as conn:
+        conn.execute(f"CREATE DATABASE {database}")
+    try:
+        with Connection.connect(
+            DEFAULT_POSTGRES_URI + database,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        ) as conn:
+            saver = PostgresSaver(conn)
+            with conn.transaction():
+                saver.setup()
+
+            row = conn.execute(
+                """
+                SELECT
+                    to_regclass('checkpoints_thread_id_idx') AS checkpoints_idx,
+                    to_regclass('checkpoint_blobs_thread_id_idx') AS blobs_idx,
+                    to_regclass('checkpoint_writes_thread_id_idx') AS writes_idx
+                """
+            ).fetchone()
+            assert row == {
+                "checkpoints_idx": "checkpoints_thread_id_idx",
+                "blobs_idx": "checkpoint_blobs_thread_id_idx",
+                "writes_idx": "checkpoint_writes_thread_id_idx",
+            }
+    finally:
+        with Connection.connect(DEFAULT_POSTGRES_URI, autocommit=True) as conn:
+            conn.execute(f"DROP DATABASE {database}")
+
+
+def test_setup_inside_transaction_for_shallow_postgres_saver() -> None:
+    database = f"test_{uuid4().hex[:16]}"
+    with Connection.connect(DEFAULT_POSTGRES_URI, autocommit=True) as conn:
+        conn.execute(f"CREATE DATABASE {database}")
+    try:
+        with Connection.connect(
+            DEFAULT_POSTGRES_URI + database,
+            autocommit=True,
+            prepare_threshold=0,
+            row_factory=dict_row,
+        ) as conn:
+            saver = ShallowPostgresSaver(conn)
+            with conn.transaction():
+                saver.setup()
+
+            row = conn.execute(
+                """
+                SELECT
+                    to_regclass('checkpoints_thread_id_idx') AS checkpoints_idx,
+                    to_regclass('checkpoint_blobs_thread_id_idx') AS blobs_idx,
+                    to_regclass('checkpoint_writes_thread_id_idx') AS writes_idx
+                """
+            ).fetchone()
+            assert row == {
+                "checkpoints_idx": "checkpoints_thread_id_idx",
+                "blobs_idx": "checkpoint_blobs_thread_id_idx",
+                "writes_idx": "checkpoint_writes_thread_id_idx",
+            }
+    finally:
+        with Connection.connect(DEFAULT_POSTGRES_URI, autocommit=True) as conn:
+            conn.execute(f"DROP DATABASE {database}")
+
+
 @pytest.mark.parametrize("saver_name", ["base", "pool", "pipe"])
 def test_pending_sends_migration(saver_name: str) -> None:
     with _saver(saver_name) as saver:

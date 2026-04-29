@@ -144,6 +144,44 @@ def test_batch_order(store: PostgresStore) -> None:
     assert results_reordered[4].key == "key1"
 
 
+def test_setup_inside_transaction_for_postgres_store() -> None:
+    database = f"test_{uuid4().hex[:16]}"
+    uri_parts = DEFAULT_URI.split("/")
+    uri_base = "/".join(uri_parts[:-1])
+    query_params = ""
+    if "?" in uri_parts[-1]:
+        _, query_params = uri_parts[-1].split("?", 1)
+        query_params = "?" + query_params
+
+    conn_string = f"{uri_base}/{database}{query_params}"
+    with Connection.connect(DEFAULT_URI, autocommit=True) as conn:
+        conn.execute(f"CREATE DATABASE {database}")
+    try:
+        with Connection.connect(
+            conn_string,
+            autocommit=True,
+        ) as conn:
+            store = PostgresStore(conn)
+            store.MIGRATIONS = [
+                (
+                    mig.replace("ttl_minutes INT;", "ttl_minutes FLOAT;")
+                    if isinstance(mig, str)
+                    else mig
+                )
+                for mig in store.MIGRATIONS
+            ]
+            with conn.transaction():
+                store.setup()
+
+            row = conn.execute(
+                "SELECT to_regclass('store_prefix_idx') AS prefix_idx"
+            ).fetchone()
+            assert row == {"prefix_idx": "store_prefix_idx"}
+    finally:
+        with Connection.connect(DEFAULT_URI, autocommit=True) as conn:
+            conn.execute(f"DROP DATABASE {database}")
+
+
 def test_batch_get_ops(store: PostgresStore) -> None:
     # Setup test data
     store.put(("test",), "key1", {"data": "value1"})

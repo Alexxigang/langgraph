@@ -1113,7 +1113,9 @@ class PostgresStore(BaseStore, BasePostgresStore[_pg_internal.Conn]):
             version = _get_version(cur, table="store_migrations")
             for v, sql in enumerate(self.MIGRATIONS[version + 1 :], start=version + 1):
                 try:
-                    cur.execute(sql)
+                    cur.execute(
+                        _pg_internal.migration_sql_for_connection(self.conn, sql)
+                    )
                     cur.execute("INSERT INTO store_migrations (v) VALUES (%s)", (v,))
                 except Exception as e:
                     logger.error(
@@ -1156,7 +1158,9 @@ class PostgresStore(BaseStore, BasePostgresStore[_pg_internal.Conn]):
                                 )
                             params["index_type"] = it
                         sql = sql % params
-                    cur.execute(sql)
+                    cur.execute(
+                        _pg_internal.migration_sql_for_connection(self.conn, sql)
+                    )
                     cur.execute("INSERT INTO vector_migrations (v) VALUES (%s)", (v,))
 
 
